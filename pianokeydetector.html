@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Piano Key Detector</title>
+<style>
+:root{
+  color-scheme:dark;
+  --lacquer:#0e1016; --surface:#161922; --surface2:#1e222d; --line:#2b3040;
+  --ivory:#f1ede3; --mute:#9aa1b2; --brass:#e2b34f; --lit:#ff4d6a;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{
+  background:radial-gradient(900px 420px at 12% -8%,rgba(226,179,79,.09),transparent 62%),var(--lacquer);
+  color:var(--ivory);font-family:var(--sans);line-height:1.45;min-height:100vh;
+}
+.wrap{max-width:1040px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 16px calc(40px + env(safe-area-inset-bottom,0px))}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+/* ---------- hero ---------- */
+.titleRow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:.01em;margin:0}
+.live{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ivory);background:var(--surface2);border:1px solid var(--line);border-radius:99px;padding:4px 11px 4px 9px}
+.live[hidden]{display:none}
+.live i{width:9px;height:9px;border-radius:50%;background:var(--lit);box-shadow:0 0 0 0 rgba(255,77,106,.6);animation:pulse 1.6s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 9px rgba(255,77,106,0)}100%{box-shadow:0 0 0 0 rgba(255,77,106,0)}}
+.readout{display:flex;align-items:flex-end;gap:18px;margin:14px 0 6px;min-height:118px}
+.note{font-family:var(--serif);font-weight:600;font-size:clamp(76px,24vw,136px);line-height:.88;letter-spacing:-.02em;color:var(--ivory);opacity:.28;transition:opacity .15s,color .15s;font-variant-numeric:lining-nums}
+.readout.live .note{opacity:1}
+.readout.live .note.isC{color:var(--brass)}
+.readout.held .note{opacity:.5}
+.meta{padding-bottom:8px;min-width:0}
+.hz{font-family:var(--mono);font-size:17px}
+.cents{font-size:14px;color:var(--mute);margin-top:2px}
+.gauge{position:relative;height:6px;border-radius:99px;background:var(--surface2);margin:10px 0 18px;border:1px solid var(--line)}
+.gauge .zone{position:absolute;left:40%;width:20%;top:-1px;bottom:-1px;background:rgba(226,179,79,.28);border-radius:99px}
+.gauge .tick{position:absolute;left:50%;top:-5px;bottom:-5px;width:1px;background:var(--mute)}
+.gauge .needle{position:absolute;top:50%;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--lit);box-shadow:0 0 12px rgba(255,77,106,.7);transition:left .09s linear,opacity .2s;opacity:.0}
+.readout.live ~ .gauge .needle{opacity:1}
+.btn{width:100%;height:54px;border-radius:12px;border:0;font-weight:700;font-size:17px;cursor:pointer;background:var(--brass);color:#2a1d00;transition:transform .08s,background .15s}
+.btn:active{transform:scale(.985)}
+.btn.on{background:var(--surface2);color:var(--ivory);border:1px solid var(--line)}
+.btn[disabled]{opacity:.6;cursor:wait}
+.status{margin:10px 2px 0;font-size:14px;color:var(--mute);min-height:21px}
+.status.err{color:#ff9aa8}
+
+/* ---------- keyboard panel ---------- */
+#dock{margin:18px 0 6px}
+.kb-panel{background:#0a0b0f;border:1px solid var(--line);border-radius:10px;overflow:hidden;max-width:100vw}
+.kb-panel.floating{position:fixed;z-index:60;box-shadow:0 24px 60px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.04)}
+.kb-panel.dragging{box-shadow:0 30px 80px rgba(0,0,0,.8),0 0 0 1px var(--brass)}
+.kb-head{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface2);border-bottom:1px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none}
+.floating .kb-head{cursor:grab}
+.dragging .kb-head{cursor:grabbing}
+.grip{width:14px;height:18px;flex:none;opacity:.0;background:radial-gradient(circle,var(--mute) 1.4px,transparent 1.8px) 0 0/7px 6px}
+.floating .grip{opacity:.9}
+.kb-title{flex:1;min-width:0;line-height:1.15}
+.kb-title b{display:block;font-size:14px;font-weight:650}
+.kb-title small{font-size:12px;color:var(--mute);font-family:var(--mono)}
+.kb-tools{display:flex;gap:5px;flex:none}
+.kb-tools button{min-width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:17px;line-height:1;padding:0 8px}
+.kb-tools button:disabled{opacity:.3;cursor:default}
+.kb-tools .pill{font-size:12px;padding:0 10px}
+.kb-scroll{overflow-x:auto;overflow-y:hidden;padding:16px 8px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.kb{position:relative;margin:0 auto}
+.kb::before{content:"";position:absolute;left:0;right:0;top:-7px;height:7px;background:linear-gradient(#6f1024,#a91936);border-radius:2px 2px 0 0}
+.wk{position:absolute;top:0;height:100%;background:linear-gradient(#e9e6dd,#fbfaf6 40%,#f1eee5);border:1px solid #6d7080;border-top:0;border-radius:0 0 5px 5px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;transition:background .1s,box-shadow .1s}
+.wk span{font-size:11px;color:#8b8f9c;pointer-events:none;font-weight:600}
+.wk span.lc{color:#4a4f5e;font-weight:800}
+.bk{position:absolute;top:0;z-index:2;background:linear-gradient(#2d303a,#0b0c10 85%);border:1px solid #000;border-top:0;border-radius:0 0 4px 4px;box-shadow:inset 0 -3px 4px rgba(255,255,255,.08);transition:background .1s,box-shadow .1s}
+.kb.hl .wk.c{background:linear-gradient(#f7f3e6,#fff2c9 85%,#f2d98e)}
+.kb.hl .wk.c::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:var(--brass);border-radius:0 0 4px 4px}
+.kb.hl .wk.c span.lc{color:#7c5a06;margin-bottom:6px}
+.kb .wk.on,.kb.hl .wk.c.on{background:linear-gradient(#ff9aab,#ff4d6a 65%,#e53a58);box-shadow:inset 0 -10px 18px rgba(110,0,25,.3),0 0 22px rgba(255,77,106,.55)}
+.kb .wk.on span,.kb.hl .wk.c.on span.lc{color:#fff}
+.kb .bk.on{background:linear-gradient(#ff6a82,#c8223f);box-shadow:0 0 18px rgba(255,77,106,.65)}
+
+/* ---------- sections ---------- */
+section.block{border-top:1px solid var(--line);padding:18px 2px 6px;margin-top:18px}
+h2{font-family:var(--serif);font-size:18px;font-weight:600;margin:0 0 12px}
+.stages{list-style:none;margin:0;padding:0}
+.stages li{display:grid;grid-template-columns:14px 1fr;column-gap:12px;padding:8px 0;position:relative}
+.stages li::before{content:"";position:absolute;left:6px;top:26px;bottom:-8px;width:1px;background:var(--line)}
+.stages li:last-child::before{display:none}
+.stages .dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--line);margin-top:4px;background:var(--lacquer);transition:all .15s}
+.stages li.on .dot{background:var(--lit);border-color:var(--lit);box-shadow:0 0 10px rgba(255,77,106,.6)}
+.stages b{font-weight:650;font-size:15px}
+.stages .val{font-family:var(--mono);font-size:13px;color:var(--mute);margin-top:2px;overflow-wrap:anywhere}
+.meter{position:relative;height:8px;border-radius:99px;background:var(--surface2);margin-top:8px;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,var(--brass),var(--lit));border-radius:99px}
+.meter b{position:absolute;top:0;bottom:0;width:2px;background:var(--ivory);opacity:.85}
+canvas#wave{display:block;width:100%;height:64px;margin-top:8px;border-radius:8px;background:var(--surface)}
+.field{display:flex;align-items:center;gap:14px;margin:6px 0 10px}
+.field input[type=range]{flex:1;accent-color:var(--brass);height:28px}
+.field output{font-family:var(--mono);font-size:14px;min-width:78px;text-align:right}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.seg button{height:34px;padding:0 13px;border-radius:99px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:14px}
+.seg button.act{background:var(--brass);border-color:var(--brass);color:#2a1d00;font-weight:700}
+.hint{font-size:13px;color:var(--mute);margin:2px 0 12px}
+.sw{display:flex;align-items:center;gap:12px;padding:9px 0;cursor:pointer;font-size:15px}
+.sw input{position:absolute;opacity:0;pointer-events:none}
+.sw .track{width:42px;height:24px;border-radius:99px;background:var(--surface2);border:1px solid var(--line);position:relative;flex:none;transition:background .15s}
+.sw .track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--mute);transition:transform .15s,background .15s}
+.sw input:checked + .track{background:rgba(226,179,79,.25);border-color:var(--brass)}
+.sw input:checked + .track::after{transform:translateX(18px);background:var(--brass)}
+.sw input:focus-visible + .track{outline:2px solid var(--brass);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;min-height:34px}
+.chips span{font-family:var(--serif);font-size:18px;font-weight:600;padding:3px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--line)}
+.chips span.c{border-color:var(--brass);color:var(--brass)}
+.chips em{font-style:normal;font-size:14px;color:var(--mute)}
+.link{background:none;border:0;color:var(--mute);text-decoration:underline;cursor:pointer;font-size:13px;padding:4px 0;margin-top:6px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header>
+    <div class="titleRow">
+      <h1>Piano Key Detector</h1>
+      <span class="live" id="liveBadge" hidden><i></i>Mic live</span>
+    </div>
+
+    <div class="readout" id="readout">
+      <div class="note" id="noteName">–</div>
+      <div class="meta">
+        <div class="hz" id="noteHz">Play a key</div>
+        <div class="cents" id="noteCents">&nbsp;</div>
+      </div>
+    </div>
+    <div class="gauge" aria-hidden="true"><div class="zone"></div><div class="tick"></div><div class="needle" id="needle"></div></div>
+
+    <button class="btn" id="startBtn">Start detecting</button>
+    <p class="status" id="status" role="status" aria-live="polite">Microphone is off. Press Start detecting and allow microphone access.</p>
+  </header>
+
+  <div id="dock">
+    <div class="kb-panel" id="kbPanel">
+      <div class="kb-head" id="kbHead">
+        <span class="grip" aria-hidden="true"></span>
+        <div class="kb-title"><b id="kbCount">88 keys</b><small id="kbRange">A0–C8</small></div>
+        <div class="kb-tools">
+          <button id="bMinus" aria-label="Fewer keys" title="Fewer keys">−</button>
+          <button id="bPlus" aria-label="More keys" title="More keys">+</button>
+          <button id="bLeft" aria-label="Move keys down one octave" title="Down one octave">‹</button>
+          <button id="bRight" aria-label="Move keys up one octave" title="Up one octave">›</button>
+          <button id="bDock" class="pill">Dock</button>
+        </div>
+      </div>
+      <div class="kb-scroll" id="kbScroll"><div class="kb hl" id="kb"></div></div>
+    </div>
+  </div>
+
+  <section class="block">
+    <h2>How it hears</h2>
+    <ul class="stages">
+      <li id="s1"><span class="dot"></span><div><b>Microphone</b><div class="val" id="micInfo">Not started</div></div></li>
+      <li id="s2"><span class="dot"></span><div><b>Clean signal</b><div class="val" id="cleanInfo">High-pass 20 Hz, noise gate −48 dB</div>
+        <div class="meter" aria-hidden="true"><i id="meterFill"></i><b id="gateMark"></b></div>
+        <canvas id="wave" aria-label="Live microphone waveform"></canvas></div></li>
+      <li id="s3"><span class="dot"></span><div><b>Pitch of each frame</b><div class="val" id="rawInfo">Waiting for sound</div></div></li>
+      <li id="s4"><span class="dot"></span><div><b>Average and key</b><div class="val" id="avgInfo">Waiting for sound</div></div></li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2>Keyboard</h2>
+    <div class="field"><input id="keyRange" type="range" min="13" max="88" step="1" value="88" aria-label="Number of keys"><output id="keyOut" for="keyRange">88 keys</output></div>
+    <div class="seg" id="presets" role="group" aria-label="Keyboard size presets"></div>
+    <p class="hint">Under 88 keys the keyboard floats. Drag it by its top bar to put it anywhere on screen.</p>
+    <label class="sw"><input type="checkbox" id="swC" checked><span class="track"></span>Highlight every C key</label>
+    <label class="sw"><input type="checkbox" id="swFollow" checked><span class="track"></span>Keep the played key in view</label>
+  </section>
+
+  <section class="block">
+    <h2>Noise gate</h2>
+    <div class="field"><input id="gate" type="range" min="-70" max="-20" step="1" value="-48" aria-label="Noise gate in decibels"><output id="gateOut" for="gate">−48 dB</output></div>
+    <p class="hint">Sounds quieter than the gate are ignored. Raise it in a noisy room, lower it if soft notes are missed.</p>
+  </section>
+
+  <section class="block">
+    <h2>Recent keys</h2>
+    <div class="chips" id="chips"><em>Detected keys appear here.</em></div>
+    <button class="link" id="clearChips">Clear</button>
+  </section>
+
+</main>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+
+/*DSP-START*/
+/* Radix-2 complex FFT (in place). */
+function makeFFT(n){
+  const levels = Math.round(Math.log2(n));
+  const rev = new Uint32Array(n);
+  for (let i = 0; i < n; i++){ let r = 0, x = i; for (let b = 0; b < levels; b++){ r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
+  const cs = new Float64Array(n / 2), sn = new Float64Array(n / 2);
+  for (let i = 0; i < n / 2; i++){ cs[i] = Math.cos(2 * Math.PI * i / n); sn[i] = Math.sin(2 * Math.PI * i / n); }
+  return function(re, im, inv){
+    for (let i = 0; i < n; i++){ const j = rev[i]; if (j > i){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (let size = 2; size <= n; size <<= 1){
+      const half = size >> 1, step = n / size;
+      for (let i = 0; i < n; i += size){
+        for (let j = i, k = 0; j < i + half; j++, k += step){
+          const c = cs[k], s = inv ? sn[k] : -sn[k], l = j + half;
+          const tr = re[l] * c - im[l] * s, ti = re[l] * s + im[l] * c;
+          re[l] = re[j] - tr; im[l] = im[j] - ti; re[j] += tr; im[j] += ti;
+        }
+      }
+    }
+    if (inv){ for (let i = 0; i < n; i++){ re[i] /= n; im[i] /= n; } }
+  };
+}
+
+/* YIN pitch estimator; the difference function is computed with FFT cross-correlation. */
+function createYin(N, tauMax){
+  const W = N - tauMax;
+  const fft = makeFFT(N);
+  const ar = new Float64Array(N), ai = new Float64Array(N), br = new Float64Array(N), bi = new Float64Array(N);
+  const P = new Float64Array(N + 1), d = new Float64Array(tauMax + 1);
+  return function(x, off, sr, fmax, thr){
+    P[0] = 0;
+    for (let i = 0; i < N; i++){
+      const v = x[off + i];
+      br[i] = v; bi[i] = 0; ar[i] = i < W ? v : 0; ai[i] = 0; P[i + 1] = P[i] + v * v;
+    }
+    fft(ar, ai, false); fft(br, bi, false);
+    for (let i = 0; i < N; i++){
+      const r = ar[i] * br[i] + ai[i] * bi[i];
+      const m = ar[i] * bi[i] - ai[i] * br[i];
+      ar[i] = r; ai[i] = m;
+    }
+    fft(ar, ai, true);
+    const E0 = P[W];
+    let run = 0;
+    d[0] = 1;
+    for (let t = 1; t <= tauMax; t++){
+      let raw = E0 + (P[t + W] - P[t]) - 2 * ar[t];
+      if (raw < 0) raw = 0;
+      run += raw;
+      d[t] = run > 0 ? raw * t / run : 1;
+    }
+    const tauMin = Math.max(2, Math.floor(sr / fmax));
+    let tau = -1;
+    for (let t = tauMin; t < tauMax; t++){
+      if (d[t] < thr){ while (t + 1 < tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
+    }
+    if (tau < 0){
+      let mn = 1e9, mt = -1;
+      for (let t = tauMin; t < tauMax; t++){ if (d[t] < mn){ mn = d[t]; mt = t; } }
+      if (mt > 0 && mn < 0.3) tau = mt; else return null;
+    }
+    let tf = tau;
+    if (tau > 1 && tau < tauMax){
+      const s0 = d[tau - 1], s1 = d[tau], s2 = d[tau + 1], den = s0 + s2 - 2 * s1;
+      if (den > 1e-12){ tf = tau + Math.max(-1, Math.min(1, (s0 - s2) / (2 * den))); }
+    }
+    return { f: sr / tf, clarity: Math.max(0, 1 - d[tau]) };
+  };
+}
+
+/* Two analysis windows: a short one for quick response and a long one for the bass. */
+function detectPitch(buf, sr, yA, yB, NA){
+  const N = buf.length;
+  const a = yA(buf, N - NA, sr, 4600, 0.18);
+  const b = yB(buf, 0, sr, 4600, 0.18);
+  const okA = !!a && a.clarity >= 0.8, okB = !!b && b.clarity >= 0.85;
+  let pick = null;
+  if (okA && a.f >= 120) pick = a;
+  if (okB){
+    if (!pick) pick = b;
+    else if (pick.f < 340){
+      const r = pick.f / b.f;
+      if ((r > 1.93 && r < 2.07) || (r > 2.9 && r < 3.1) || (r > 3.87 && r < 4.13)) pick = b;
+    }
+  }
+  if (!pick && okA && a.f >= 60) pick = a;
+  return pick;
+}
+/*DSP-END*/
+
+/* ---------- music helpers ---------- */
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const MIDI_MIN = 21, MIDI_MAX = 108;
+const PRESETS = [13, 25, 37, 49, 61, 76, 88];
+const isBlack = m => { const k = m % 12; return k === 1 || k === 3 || k === 6 || k === 8 || k === 10; };
+const nm = m => NOTES[m % 12] + (Math.floor(m / 12) - 1);
+const pretty = s => s.replace('#', '\u266F');
+const hzOf = m => 440 * Math.pow(2, (m - 69) / 12);
+const midiOf = f => 69 + 12 * Math.log2(f / 440);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmtC = c => (c >= 0 ? '+' : '\u2212') + Math.abs(Math.round(c)) + '\u00A2';
+
+/* ---------- keyboard view ---------- */
+const V = { n: 88, lo: 21, dock: false, pos: null };
+const keyEls = new Map();
+let activeKey = null;
+const panel = $('kbPanel'), head = $('kbHead'), kb = $('kb'), scroller = $('kbScroll'), dock = $('dock');
+const isFloating = () => V.n < 88 && !V.dock;
+
+function renderKeyboard(){
+  kb.innerHTML = ''; keyEls.clear();
+  const lo = V.lo, hi = V.lo + V.n - 1;
+  let wCount = 0;
+  for (let m = lo; m <= hi; m++) if (!isBlack(m)) wCount++;
+  const fl = isFloating();
+  panel.classList.toggle('floating', fl);
+  const vw = document.documentElement.clientWidth;
+  const avail = fl ? vw - 12 - 18 : dock.clientWidth - 18;
+  const ww = clamp(Math.floor(avail / Math.max(1, wCount)), 20, fl ? 52 : 56);
+  const bw = Math.round(ww * 0.62);
+  const padL = isBlack(lo) ? Math.ceil(bw / 2) : 0, padR = isBlack(hi) ? Math.ceil(bw / 2) : 0;
+  const kh = clamp(Math.round(ww * 5), 112, 190);
+  kb.style.width = (padL + wCount * ww + padR) + 'px';
+  kb.style.height = kh + 'px';
+  let w = 0;
+  for (let m = lo; m <= hi; m++){
+    const el = document.createElement('div');
+    el.dataset.midi = m;
+    if (!isBlack(m)){
+      el.className = 'wk' + (m % 12 === 0 ? ' c' : '');
+      el.style.left = (padL + w * ww) + 'px';
+      el.style.width = ww + 'px';
+      const lab = document.createElement('span');
+      if (m % 12 === 0){ lab.textContent = nm(m); lab.className = 'lc'; }
+      else if (ww >= 26){ lab.textContent = NOTES[m % 12]; }
+      el.appendChild(lab);
+      w++;
+    } else {
+      el.className = 'bk';
+      el.style.left = Math.max(0, padL + w * ww - bw / 2) + 'px';
+      el.style.width = bw + 'px';
+      el.style.height = Math.round(kh * 0.62) + 'px';
+    }
+    kb.appendChild(el);
+    keyEls.set(m, el);
+  }
+  if (activeKey != null){ const e = keyEls.get(activeKey); if (e) e.classList.add('on'); }
+  applyMode();
+  syncControls();
+}
+
+function applyMode(){
+  const fl = isFloating();
+  panel.classList.toggle('floating', fl);
+  if (fl){
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    const total = parseFloat(kb.style.width) + 18 + 2;
+    const w = clamp(total, 300, vw - 12);
+    panel.style.width = w + 'px';
+    if (!V.pos) V.pos = { x: (vw - w) / 2, y: vh - panel.offsetHeight - 14 };
+    placePanel();
+    document.body.style.paddingBottom = (panel.offsetHeight + 28) + 'px';
+  } else {
+    panel.style.width = ''; panel.style.left = ''; panel.style.top = '';
+    document.body.style.paddingBottom = '';
+  }
+}
+function placePanel(){
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const w = panel.offsetWidth, h = panel.offsetHeight;
+  V.pos.x = clamp(V.pos.x, 0, Math.max(0, vw - w));
+  V.pos.y = clamp(V.pos.y, 0, Math.max(0, vh - h));
+  panel.style.left = V.pos.x + 'px';
+  panel.style.top = V.pos.y + 'px';
+}
+
+/* drag the floating keyboard by its top bar */
+let drag = null;
+head.addEventListener('pointerdown', e => {
+  if (!isFloating() || e.target.closest('button')) return;
+  drag = { dx: e.clientX - V.pos.x, dy: e.clientY - V.pos.y };
+  head.setPointerCapture(e.pointerId);
+  panel.classList.add('dragging');
+});
+head.addEventListener('pointermove', e => {
+  if (!drag) return;
+  V.pos.x = e.clientX - drag.dx; V.pos.y = e.clientY - drag.dy;
+  placePanel();
+});
+const endDrag = () => { drag = null; panel.classList.remove('dragging'); };
+head.addEventListener('pointerup', endDrag);
+head.addEventListener('pointercancel', endDrag);
+
+function setCount(n){
+  n = clamp(Math.round(n), 13, 88);
+  const center = V.lo + (V.n - 1) / 2;
+  let lo = Math.round(center - (n - 1) / 2);
+  lo = Math.round(lo / 12) * 12;
+  lo = clamp(lo, MIDI_MIN, MIDI_MAX - n + 1);
+  V.n = n; V.lo = lo;
+  if (n === 88) V.dock = false;
+  renderKeyboard();
+}
+function stepPreset(dir){
+  let t;
+  if (dir < 0){ t = 13; for (const p of PRESETS) if (p < V.n) t = p; }
+  else { t = 88; for (let i = PRESETS.length - 1; i >= 0; i--) if (PRESETS[i] > V.n) t = PRESETS[i]; }
+  setCount(t);
+}
+function shiftView(d){
+  const lo = clamp(V.lo + d, MIDI_MIN, MIDI_MAX - V.n + 1);
+  if (lo !== V.lo){ V.lo = lo; renderKeyboard(); }
+}
+function ensureVisible(m){
+  if (m >= V.lo && m <= V.lo + V.n - 1) return;
+  let lo = clamp(Math.round(m - (V.n - 1) / 2), MIDI_MIN, MIDI_MAX - V.n + 1);
+  const snapped = clamp(Math.round(lo / 12) * 12, MIDI_MIN, MIDI_MAX - V.n + 1);
+  if (m >= snapped && m <= snapped + V.n - 1) lo = snapped;
+  V.lo = lo; renderKeyboard();
+}
+function scrollToKey(el){
+  if (scroller.scrollWidth <= scroller.clientWidth + 2) return;
+  const er = el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  const x = er.left + er.width / 2 - sr.left + scroller.scrollLeft;
+  const l = scroller.scrollLeft, w = scroller.clientWidth;
+  if (x < l + 36 || x > l + w - 36) scroller.scrollTo({ left: x - w / 2, behavior: 'smooth' });
+}
+function setActive(key){
+  if (key === activeKey) return;
+  if (activeKey != null){ const e = keyEls.get(activeKey); if (e) e.classList.remove('on'); }
+  activeKey = key;
+  if (key != null){
+    if ($('swFollow').checked) ensureVisible(key);
+    const e = keyEls.get(key);
+    if (e){ e.classList.add('on'); scrollToKey(e); }
+  }
+}
+
+function syncControls(){
+  $('keyRange').value = V.n;
+  $('keyOut').textContent = V.n + ' keys';
+  $('kbCount').textContent = V.n + ' keys';
+  $('kbRange').textContent = pretty(nm(V.lo)) + '\u2013' + pretty(nm(V.lo + V.n - 1));
+  $('bMinus').disabled = V.n <= 13;
+  $('bPlus').disabled = V.n >= 88;
+  $('bLeft').disabled = V.lo <= MIDI_MIN;
+  $('bRight').disabled = V.lo + V.n - 1 >= MIDI_MAX;
+  $('bDock').hidden = V.n >= 88;
+  $('bDock').textContent = V.dock ? 'Float' : 'Dock';
+  document.querySelectorAll('#presets button').forEach(b => b.classList.toggle('act', +b.dataset.n === V.n));
+}
+
+/* ---------- detector state ---------- */
+const A = { ctx: null, stream: null, an: null, buf: null, bytes: null, run: false, busy: false, raf: 0, last: 0, sr: 48000, NA: 2048, yA: null, yB: null };
+const D = { gate: -48, hist: [], rmsH: [], lastOnset: 0, lastVoiced: 0, lockedKey: null, locked: null, shown: null, pendingChip: true, chipKey: null, chips: [] };
+
+const rms = (b, s, e) => { let a = 0; for (let i = s; i < e; i++){ const v = b[i]; a += v * v; } return Math.sqrt(a / (e - s)); };
+
+function averageHist(){
+  const h = D.hist;
+  if (!h.length) return null;
+  const ms = h.map(x => x.m).sort((a, b) => a - b);
+  const med = ms[ms.length >> 1];
+  let sw = 0, sm = 0, n = 0;
+  for (const x of h){
+    if (Math.abs(x.m - med) <= 0.5){ const w = x.c * x.c; sw += w; sm += w * x.m; n++; }
+  }
+  return sw > 0 ? { m: sm / sw, n, total: h.length } : null;
+}
+
+function process(now){
+  const an = A.an, buf = A.buf, N = buf.length;
+  if (an.getFloatTimeDomainData) an.getFloatTimeDomainData(buf);
+  else { an.getByteTimeDomainData(A.bytes); for (let i = 0; i < N; i++) buf[i] = (A.bytes[i] - 128) / 128; }
+
+  const db = 20 * Math.log10(rms(buf, N - A.NA, N) + 1e-9);
+  const rFast = rms(buf, N - 1024, N);
+  const gateLin = Math.pow(10, D.gate / 20);
+
+  /* new key press: a sudden jump in loudness starts a fresh average */
+  D.rmsH.push(rFast); if (D.rmsH.length > 8) D.rmsH.shift();
+  if (D.rmsH.length >= 5){
+    let prev = 0; const k = D.rmsH.length - 1;
+    for (let i = 0; i < k; i++) prev += D.rmsH[i];
+    prev /= k;
+    if (rFast > prev * 2.0 && rFast > gateLin * 1.5 && now - D.lastOnset > 180){
+      D.lastOnset = now; D.hist.length = 0; D.pendingChip = true;
+    }
+  }
+
+  /* pitch of this frame */
+  let raw = null;
+  if (db >= D.gate){
+    const est = detectPitch(buf, A.sr, A.yA, A.yB, A.NA);
+    if (est && est.f >= 24 && est.f <= 4600){
+      const m = midiOf(est.f);
+      if (m >= MIDI_MIN - 0.7 && m <= MIDI_MAX + 0.7){
+        raw = { f: est.f, m, c: est.clarity };
+        D.hist.push({ t: now, m, c: est.clarity });
+        if (D.hist.length > 14) D.hist.shift();
+        D.lastVoiced = now;
+      }
+    }
+  }
+  while (D.hist.length && now - D.hist[0].t > 900) D.hist.shift();
+
+  /* average of recent frames */
+  let avg = averageHist();
+  if (avg && D.hist.length >= 3 && D.lockedKey != null){
+    const l3 = D.hist.slice(-3);
+    if (l3.every(x => Math.abs(x.m - l3[2].m) < 0.4) && Math.abs(l3[2].m - avg.m) > 0.8){
+      D.hist.splice(0, D.hist.length - 3);
+      avg = averageHist();
+    }
+  }
+  if (avg && avg.n >= 3){
+    let key = Math.round(avg.m);
+    if (D.lockedKey != null && Math.abs(avg.m - D.lockedKey) < 0.62) key = D.lockedKey;
+    if (key >= MIDI_MIN && key <= MIDI_MAX){
+      D.lockedKey = key;
+      D.locked = { key, m: avg.m, f: hzOf(avg.m), cents: (avg.m - key) * 100, n: avg.n, total: avg.total };
+      D.shown = D.locked;
+      if (D.pendingChip || D.chipKey !== key){ addChip(key); D.pendingChip = false; D.chipKey = key; }
+      setActive(key);
+    }
+  }
+  if (activeKey != null && now - D.lastVoiced > 350){
+    setActive(null); D.lockedKey = null; D.locked = null; D.hist.length = 0; D.pendingChip = true;
+  }
+
+  renderLive(db, raw, avg);
+  drawWave();
+}
+
+/* ---------- live UI ---------- */
+const prevText = new Map();
+function setText(id, t){ if (prevText.get(id) !== t){ prevText.set(id, t); $(id).textContent = t; } }
+function setStatus(msg, err){ const s = $('status'); s.textContent = msg; s.classList.toggle('err', !!err); }
+
+function renderLive(db, raw, avg){
+  const pct = clamp((db + 80) / 80, 0, 1) * 100;
+  $('meterFill').style.width = pct + '%';
+  $('s1').classList.toggle('on', A.run);
+  $('s2').classList.toggle('on', db >= D.gate);
+  $('s3').classList.toggle('on', !!raw);
+  $('s4').classList.toggle('on', activeKey != null);
+
+  if (raw){
+    const k = Math.round(raw.m);
+    setText('rawInfo', raw.f.toFixed(1) + ' Hz is closest to ' + pretty(nm(clamp(k, MIDI_MIN, MIDI_MAX))) + ' (' + fmtC((raw.m - k) * 100) + '), clarity ' + Math.round(raw.c * 100) + '%');
+  } else {
+    setText('rawInfo', db < D.gate ? 'Below the noise gate' : 'No steady pitch in this frame');
+  }
+  if (avg){
+    const k = clamp(Math.round(avg.m), MIDI_MIN, MIDI_MAX);
+    const shownKey = D.locked ? D.locked.key : k;
+    setText('avgInfo', hzOf(avg.m).toFixed(1) + ' Hz averaged from ' + avg.n + ' of ' + avg.total + ' frames, key ' + pretty(nm(shownKey)));
+  } else {
+    setText('avgInfo', activeKey != null ? 'Holding ' + pretty(nm(activeKey)) : 'Waiting for sound');
+  }
+
+  const ro = $('readout');
+  if (activeKey != null && D.locked){
+    ro.className = 'readout live';
+    const nn = $('noteName'); nn.textContent = pretty(nm(activeKey)); nn.classList.toggle('isC', activeKey % 12 === 0);
+    setText('noteHz', D.locked.f.toFixed(1) + ' Hz');
+    const c = D.locked.cents;
+    setText('noteCents', fmtC(c) + (Math.abs(c) < 5 ? ' in tune' : c > 0 ? ' sharp' : ' flat'));
+    $('needle').style.left = (50 + clamp(c, -50, 50)) + '%';
+    setStatus('Hearing ' + pretty(nm(activeKey)) + ', averaged over ' + D.locked.n + ' frames.');
+  } else if (D.shown){
+    ro.className = 'readout held';
+    const nn = $('noteName'); nn.textContent = pretty(nm(D.shown.key)); nn.classList.toggle('isC', D.shown.key % 12 === 0);
+    setText('noteHz', 'Last key');
+    setText('noteCents', D.shown.f.toFixed(1) + ' Hz');
+    if (A.run) setStatus('Listening. Play a key near the microphone.');
+  } else {
+    ro.className = 'readout';
+    if (A.run) setStatus('Listening. Play a key near the microphone.');
+  }
+}
+
+function addChip(key){
+  D.chips.unshift(key); if (D.chips.length > 12) D.chips.pop();
+  renderChips();
+}
+function renderChips(){
+  const box = $('chips'); box.innerHTML = '';
+  if (!D.chips.length){ box.innerHTML = '<em>Detected keys appear here.</em>'; return; }
+  for (const k of D.chips){
+    const s = document.createElement('span');
+    s.textContent = pretty(nm(k));
+    if (k % 12 === 0) s.className = 'c';
+    box.appendChild(s);
+  }
+}
+
+/* waveform of the audio being analysed */
+const wave = $('wave'), wctx = wave.getContext('2d');
+function sizeCanvas(){
+  const r = wave.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  wave.width = Math.max(10, Math.round(r.width * dpr)); wave.height = Math.max(10, Math.round(r.height * dpr));
+  drawWave();
+}
+function drawWave(){
+  const W = wave.width, H = wave.height, mid = H / 2;
+  wctx.clearRect(0, 0, W, H);
+  wctx.strokeStyle = 'rgba(255,255,255,.1)'; wctx.lineWidth = 1;
+  wctx.beginPath(); wctx.moveTo(0, mid); wctx.lineTo(W, mid); wctx.stroke();
+  if (!A.run || !A.buf) return;
+  const b = A.buf, N = b.length, seg = Math.min(4096, N), s0 = N - seg;
+  let pk = 0.03;
+  for (let i = s0; i < N; i++){ const v = Math.abs(b[i]); if (v > pk) pk = v; }
+  const sc = (H * 0.45) / pk;
+  wctx.strokeStyle = '#ff4d6a'; wctx.lineWidth = Math.max(1, Math.round(W / 700));
+  wctx.beginPath();
+  for (let x = 0; x < W; x++){
+    const i0 = s0 + Math.floor(x / W * seg), i1 = Math.max(i0 + 1, s0 + Math.floor((x + 1) / W * seg));
+    let mn = 1, mx = -1;
+    for (let i = i0; i < i1; i++){ const v = b[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    wctx.moveTo(x + .5, mid - mx * sc); wctx.lineTo(x + .5, mid - mn * sc);
+  }
+  wctx.stroke();
+}
+
+/* ---------- microphone ---------- */
+function micError(e){
+  const n = e && e.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError') return 'Microphone access was blocked. Allow the microphone for this page in your browser settings, then press Start detecting again.';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'No microphone was found on this device. Connect one and try again.';
+  if (n === 'NotReadableError' || n === 'AbortError') return 'The microphone is busy. Close other apps that are using it and try again.';
+  if (n === 'Unsupported') return 'This browser or page can’t open the microphone. Open this file in a current Chrome, Edge, Safari or Firefox, or serve it over https.';
+  return 'Could not open the microphone: ' + ((e && e.message) || e);
+}
+function setBtn(state){
+  const b = $('startBtn');
+  b.disabled = state === 'wait';
+  b.classList.toggle('on', state === 'on');
+  b.textContent = state === 'on' ? 'Stop detecting' : state === 'wait' ? 'Opening microphone…' : 'Start detecting';
+  $('liveBadge').hidden = state !== 'on';
+}
+function resetDetector(){
+  D.hist.length = 0; D.rmsH.length = 0; D.lockedKey = null; D.locked = null; D.pendingChip = true; D.lastVoiced = 0; D.lastOnset = 0;
+}
+
+async function start(){
+  if (A.run || A.busy) return;
+  A.busy = true; setBtn('wait'); setStatus('Waiting for microphone permission…');
+  let stream = null, ctx = null;
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ const e = new Error('unsupported'); e.name = 'Unsupported'; throw e; }
+    ctx = new AC({ latencyHint: 'interactive' });
+    ctx.resume();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    if (ctx.state !== 'running') await ctx.resume();
+    const sr = ctx.sampleRate;
+    const src = ctx.createMediaStreamSource(stream);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 20; hp.Q.value = 0.7;
+    const an = ctx.createAnalyser(); an.fftSize = sr > 60000 ? 16384 : 8192; an.smoothingTimeConstant = 0;
+    const sink = ctx.createGain(); sink.gain.value = 0;   /* keeps the graph running, never plays the mic back */
+    src.connect(hp); hp.connect(an); an.connect(sink); sink.connect(ctx.destination);
+    A.NA = sr > 60000 ? 4096 : 2048;
+    A.yA = createYin(A.NA, A.NA >> 1);
+    A.yB = createYin(an.fftSize, Math.min(Math.ceil(sr / 24), Math.floor(an.fftSize * 0.75)));
+    A.ctx = ctx; A.stream = stream; A.an = an; A.sr = sr;
+    A.buf = new Float32Array(an.fftSize); A.bytes = new Uint8Array(an.fftSize);
+    const track = stream.getAudioTracks()[0];
+    if (track) track.addEventListener('ended', () => { if (A.run){ stop(); setStatus('The microphone was disconnected. Press Start detecting to try again.', true); } });
+    $('micInfo').textContent = ((track && track.label) || 'Default microphone') + ', ' + (sr / 1000).toFixed(1).replace('.0', '') + ' kHz';
+    resetDetector();
+    A.run = true; A.last = 0;
+    setBtn('on'); setStatus('Listening. Play a key near the microphone.');
+    A.raf = requestAnimationFrame(loop);
+  } catch (e){
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (ctx) ctx.close().catch(() => {});
+    setBtn('idle'); setStatus(micError(e), true);
+  } finally { A.busy = false; }
+}
+function stop(){
+  A.run = false; cancelAnimationFrame(A.raf);
+  if (A.stream) A.stream.getTracks().forEach(t => t.stop());
+  if (A.ctx) A.ctx.close().catch(() => {});
+  A.stream = A.ctx = A.an = null;
+  setActive(null); resetDetector();
+  $('micInfo').textContent = 'Not started';
+  ['s1', 's2', 's3', 's4'].forEach(i => $(i).classList.remove('on'));
+  $('meterFill').style.width = '0';
+  $('readout').className = D.shown ? 'readout held' : 'readout';
+  setText('rawInfo', 'Waiting for sound'); setText('avgInfo', 'Waiting for sound');
+  setBtn('idle'); setStatus('Microphone is off. Press Start detecting and allow microphone access.');
+  drawWave();
+}
+function loop(ts){
+  if (!A.run) return;
+  A.raf = requestAnimationFrame(loop);
+  if (ts - A.last >= 30){ A.last = ts; process(ts); }
+}
+
+/* ---------- wiring ---------- */
+const presetBox = $('presets');
+PRESETS.forEach(n => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = n; b.dataset.n = n;
+  b.addEventListener('click', () => setCount(n));
+  presetBox.appendChild(b);
+});
+$('startBtn').addEventListener('click', () => { A.run ? stop() : start(); });
+$('keyRange').addEventListener('input', e => setCount(+e.target.value));
+$('bMinus').addEventListener('click', () => stepPreset(-1));
+$('bPlus').addEventListener('click', () => stepPreset(1));
+$('bLeft').addEventListener('click', () => shiftView(-12));
+$('bRight').addEventListener('click', () => shiftView(12));
+$('bDock').addEventListener('click', () => { V.dock = !V.dock; renderKeyboard(); });
+$('swC').addEventListener('change', e => kb.classList.toggle('hl', e.target.checked));
+$('gate').addEventListener('input', e => {
+  D.gate = +e.target.value;
+  $('gateOut').textContent = '\u2212' + Math.abs(D.gate) + ' dB';
+  $('cleanInfo').textContent = 'High-pass 20 Hz, noise gate \u2212' + Math.abs(D.gate) + ' dB';
+  $('gateMark').style.left = ((D.gate + 80) / 80 * 100) + '%';
+});
+$('clearChips').addEventListener('click', () => { D.chips.length = 0; renderChips(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && A.ctx && A.ctx.state === 'suspended') A.ctx.resume(); });
+
+let lastVw = document.documentElement.clientWidth, rt = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(rt);
+  rt = setTimeout(() => {
+    const vw = document.documentElement.clientWidth;
+    if (vw !== lastVw){ lastVw = vw; renderKeyboard(); } else if (isFloating()) applyMode();
+    sizeCanvas();
+  }, 120);
+});
+
+$('gateMark').style.left = ((D.gate + 80) / 80 * 100) + '%';
+renderKeyboard();
+sizeCanvas();
+})();
+</script>
+</body>
+</html>
